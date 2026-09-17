@@ -1,5 +1,5 @@
-import { OperadorPanel } from "@/components/operador/OperadorPanel";
+import { OperadorPedidos } from "@/components/operador/OperadorPedidos";
 
 export default function OperadorPage() {
-  return <OperadorPanel />;
+  return <OperadorPedidos />;
 }

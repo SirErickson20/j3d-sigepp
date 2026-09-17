@@ -172,6 +172,11 @@
 .order-progress li.current .stage-number { border-color: var(--red); color: var(--red); box-shadow: 0 0 14px #ed3b4530; }
 .order-progress li.current .stage-label { color: var(--red); }
 .order-overview { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-top: 28px; }
+.quote-amount { display: grid; gap: 6px; min-width: 180px; padding: 14px 16px; border: 1px solid #ed3b4548; border-radius: 10px; background: #ed3b4510; text-align: right; }
+.quote-amount span { color: var(--subtle); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.quote-amount strong { color: var(--red); font-size: 22px; letter-spacing: -.03em; }
+.quote-amount span:nth-of-type(2) { margin-top: 10px; }
+.quote-amount b { color: var(--ink); font-size: 14px; font-weight: 600; }
 .order-overview h3 { margin: 0; color: var(--ink); font-size: 17px; }
 .model-preview { display: grid; gap: 8px; width: 150px; flex: 0 0 150px; }
 .model-preview img { display: block; width: 150px; height: 105px; border: 1px solid var(--edge); border-radius: 8px; object-fit: cover; background: var(--charcoal); }
