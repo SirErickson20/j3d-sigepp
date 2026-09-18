@@ -1,0 +1,100 @@
+.home {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background: #0b0c0e;
+  color: #f4f4f5;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.shell {
+  width: min(720px, 100%);
+}
+
+.brand {
+  margin: 0 0 10px;
+  color: #ef3d46;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.shell h1 {
+  margin: 0 0 10px;
+  font-size: clamp(32px, 5vw, 44px);
+  letter-spacing: -0.05em;
+  line-height: 1.1;
+}
+
+.intro {
+  margin: 0 0 36px;
+  color: #8b8e96;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px;
+  border: 1px solid #292c31;
+  border-radius: 12px;
+  background: #15171a;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.card:hover {
+  border-color: rgba(239, 61, 70, 0.55);
+  background: #1b1719;
+  transform: translateY(-2px);
+}
+
+.card span {
+  color: #ef3d46;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.card strong {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.card p {
+  margin: 0;
+  color: #8b8e96;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.card em {
+  margin-top: auto;
+  color: #ff6970;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    min-height: 0;
+  }
+}
