@@ -8,9 +8,9 @@ import { cx } from './cx'
 
 const NAV_ITEMS = [
   { href: '/operador', label: 'Pedidos', icon: Package, exact: true },
-  { href: '/operador/cotizacion', label: 'Cotización', icon: FileText },
-  { href: '/operador/presupuesto', label: 'Presupuesto', icon: ClipboardList },
-  { href: '/operador/reportes', label: 'Reportes', icon: BarChart3 },
+  { href: '/operador/cotizacion', label: 'Cotización', icon: FileText, exact: false },
+  { href: '/operador/presupuesto', label: 'Presupuesto', icon: ClipboardList, exact: false },
+  { href: '/operador/reportes', label: 'Reportes', icon: BarChart3, exact: false },
 ] as const
 
 const MenuContext = createContext({ openMenu: () => {} })
