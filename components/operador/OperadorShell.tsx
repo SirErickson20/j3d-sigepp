@@ -3,15 +3,22 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, ClipboardList, FileText, Package, X } from 'lucide-react'
+import { BarChart3, ClipboardList, FileText, Package, X, type LucideIcon } from 'lucide-react'
 import { cx } from './cx'
 
-const NAV_ITEMS = [
+type NavItem = {
+  href: string
+  label: string
+  icon: LucideIcon
+  exact?: boolean
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: '/operador', label: 'Pedidos', icon: Package, exact: true },
-  { href: '/operador/cotizacion', label: 'Cotización', icon: FileText, exact: false },
-  { href: '/operador/presupuesto', label: 'Presupuesto', icon: ClipboardList, exact: false },
-  { href: '/operador/reportes', label: 'Reportes', icon: BarChart3, exact: false },
-] as const
+  { href: '/operador/cotizacion', label: 'Cotización', icon: FileText },
+  { href: '/operador/presupuesto', label: 'Presupuesto', icon: ClipboardList },
+  { href: '/operador/reportes', label: 'Reportes', icon: BarChart3 },
+]
 
 const MenuContext = createContext({ openMenu: () => {} })
 
