@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useState } from "react"
+import { FormEvent, useEffect, useRef, useState } from "react"
 import { createPedido } from "@/app/actions/pedidos"
 import styles from "./cliente.module.css"
 
@@ -28,17 +28,44 @@ export function ClientePedidos() {
   const [submitted, setSubmitted] = useState(false)
   const [orderCode, setOrderCode] = useState("")
   const [quantity, setQuantity] = useState(1)
-  const [selectedColors, setSelectedColors] = useState(["red"])
+  const [selectedColors, setSelectedColors] = useState<string[]>([])
   const [colorsOpen, setColorsOpen] = useState(false)
   const [delivery, setDelivery] = useState("pickup")
   const [menuOpen, setMenuOpen] = useState(false)
   const [phone, setPhone] = useState("")
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const colorsMenuRef = useRef<HTMLDivElement | null>(null)
+  const colorsTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!colorsOpen) {
+      return
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node
+      const clickedOutsideMenu = colorsMenuRef.current && !colorsMenuRef.current.contains(target)
+      const clickedOutsideTrigger = colorsTriggerRef.current && !colorsTriggerRef.current.contains(target)
+
+      if (clickedOutsideMenu && clickedOutsideTrigger) {
+        setColorsOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [colorsOpen])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
+
+    if (selectedColors.length === 0) {
+      setError("Seleccioná al menos un color.")
+      return
+    }
+
     if (!form.checkValidity()) {
       form.reportValidity()
       return
@@ -85,7 +112,7 @@ export function ClientePedidos() {
                 <button className={cx("secondary-button")} type="button" onClick={() => {
                   setSubmitted(false)
                   setQuantity(1)
-                  setSelectedColors(["red"])
+                  setSelectedColors([])
                   setDelivery("pickup")
                   setPhone("")
                 }}>Crear otro pedido</button>
@@ -147,12 +174,19 @@ export function ClientePedidos() {
                   <fieldset className={cx("field color-field")}>
                     <legend>Colores <b>*</b></legend>
                     <div className={cx("multi-select")}>
-                      <button className={cx("multi-select-trigger")} type="button" aria-haspopup="listbox" aria-expanded={colorsOpen} onClick={() => setColorsOpen(!colorsOpen)}>
+                      <button
+                        ref={colorsTriggerRef}
+                        className={cx("multi-select-trigger", colorsOpen && "open", selectedColors.length > 0 && "has-value")}
+                        type="button"
+                        aria-haspopup="listbox"
+                        aria-expanded={colorsOpen}
+                        onClick={() => setColorsOpen((current) => !current)}
+                      >
                         {selectedColors.length ? `${selectedColors.length} seleccionado${selectedColors.length > 1 ? "s" : ""}` : "Elegí uno o más colores"}
                         <span aria-hidden="true">⌄</span>
                       </button>
                       {colorsOpen && (
-                        <div className={cx("multi-select-menu")} role="listbox" aria-label="Colores disponibles">
+                        <div ref={colorsMenuRef} className={cx("multi-select-menu")} role="listbox" aria-label="Colores disponibles">
                           {colors.map((item) => (
                             <label key={item.value} className={cx("color-check")}>
                               <input
@@ -169,14 +203,24 @@ export function ClientePedidos() {
                         </div>
                       )}
                     </div>
-                    <input className={cx("visually-hidden-required")} tabIndex={-1} required value={selectedColors.join(",")} onChange={() => undefined} aria-label="Seleccioná al menos un color" />
+                    <input className={cx("visually-hidden-required")} tabIndex={-1} value={selectedColors.join(",")} onChange={() => undefined} aria-label="Seleccioná al menos un color" />
                   </fieldset>
                   <div className={cx("field")}>
                     <span id="quantity-label">Cantidad <b>*</b></span>
                     <div className={cx("stepper")} aria-labelledby="quantity-label">
-                      <button type="button" aria-label="Restar cantidad" onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
-                      <output>{quantity}</output>
-                      <button type="button" aria-label="Sumar cantidad" onClick={() => setQuantity(quantity + 1)}>+</button>
+                      <button type="button" aria-label="Restar cantidad" onClick={() => setQuantity((current) => Math.max(1, Number(current) - 1))}>−</button>
+                      <input
+                        aria-label="Cantidad"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={quantity}
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value)
+                          setQuantity(Number.isFinite(nextValue) && nextValue > 0 ? Math.floor(nextValue) : 1)
+                        }}
+                      />
+                      <button type="button" aria-label="Sumar cantidad" onClick={() => setQuantity((current) => Number(current) + 1)}>+</button>
                     </div>
                     <input type="hidden" name="cantidad" value={quantity} />
                   </div>
@@ -203,7 +247,7 @@ export function ClientePedidos() {
                   </label>
                   <label className={cx("field full-width")}>
                     <span>Diseño requerido <b>*</b></span>
-                    <textarea name="diseno" required rows={5} placeholder="Describí el diseño o adjuntá una referencia" />
+                    <textarea name="diseno" required rows={5} placeholder="Describí detalles del diseño específico" />
                   </label>
                 </div>
               </section>
@@ -230,8 +274,8 @@ export function ClientePedidos() {
                       maxLength={10}
                       value={phone}
                       onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 10))}
-                      title="Ingresá un número de teléfono de exactamente 10 dígitos"
-                      placeholder="1123456789"
+                      title="Ingresá un número de teléfono"
+                      placeholder="3884449358"
                     />
                   </label>
                   <fieldset className={cx("field full-width")}>
@@ -249,7 +293,7 @@ export function ClientePedidos() {
                   </fieldset>
                   {delivery === "shipping" && (
                     <div className={cx("field-grid full-width address-fields")}>
-                      <label className={cx("field full-width")}><span>Domicilio <b>*</b></span><input name="domicilio" required type="text" placeholder="Calle y altura" /></label>
+                      <label className={cx("field full-width")}><span>Domicilio <b>*</b></span><input name="domicilio" required type="text" placeholder="Calle y N°" /></label>
                       <label className={cx("field")}><span>Ciudad <b>*</b></span><input name="ciudad" required type="text" placeholder="Tu ciudad" /></label>
                       <label className={cx("field")}><span>Código postal <b>*</b></span><input name="codigo_postal" required type="text" placeholder="Código postal" /></label>
                     </div>
