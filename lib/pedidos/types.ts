@@ -50,9 +50,34 @@ export type Order = {
   estimatedDate: string;
   status: OrderStatus;
   createdAt: string;
-  quoteTotal?: number;
-  quoteDeliveryDate?: string;
+  quote?: Quote;
 };
+
+// Estados del presupuesto según el TP: Generado (HU-08) y Disponible (HU-09).
+export const QUOTE_STATUSES = ["Generado", "Disponible"] as const;
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+// Último presupuesto del pedido, tal como lo ve el operador.
+export type Quote = {
+  id: string;
+  status: QuoteStatus;
+  total: number;
+  calculatedTotal: number;
+  deliveryDate: string;
+  deliveryDateLabel: string;
+  materialGrams: number;
+  printHours: number;
+  lacquerPieces: number;
+  acetoneCm3: number;
+};
+
+// Lo que ve el cliente (HU-06 y HU-10): solo un presupuesto Disponible, sin el detalle de costos.
+export type ClientQuote = {
+  total: number;
+  deliveryDateLabel: string;
+};
+
+export type ClientOrder = Omit<Order, "quote"> & { quote?: ClientQuote };
 
 export type Cotizacion = {
   id: string;
@@ -146,7 +171,20 @@ export type PedidoRow = {
   codigo_postal: string | null;
   created_at: string;
   clientes: ClienteRow | ClienteRow[] | null;
-  presupuestos?: Array<{ total: number; fecha_entrega: string | null; created_at: string }> | { total: number; fecha_entrega: string | null; created_at: string } | null;
+  presupuestos?: PresupuestoRow[] | PresupuestoRow | null;
+};
+
+export type PresupuestoRow = {
+  id: string;
+  estado: string;
+  total: number | string;
+  total_calculado: number | string;
+  fecha_entrega: string;
+  cantidad_material: number | string;
+  tiempo_horas: number | string;
+  cantidad_laca: number | string;
+  acetona_cm3: number | string;
+  created_at: string;
 };
 
 export const PEDIDO_SELECT = `
@@ -159,8 +197,15 @@ export const PEDIDO_SELECT = `
     telefono
   ),
   presupuestos (
+    id,
+    estado,
     total,
+    total_calculado,
     fecha_entrega,
+    cantidad_material,
+    tiempo_horas,
+    cantidad_laca,
+    acetona_cm3,
     created_at
   )
 `;

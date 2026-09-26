@@ -1,8 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, FileText, Package, Truck } from 'lucide-react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { Check, ChevronLeft, ChevronRight, FileText, Package, Search, Truck } from 'lucide-react'
 import { actualizarEstadoPedido, listarPedidos } from '@/app/actions/pedidos'
+import { requierePresupuesto, siguienteEstadoManual } from '@/lib/pedidos/estados'
+import { normalizeOrderCode } from '@/lib/pedidos/mappers'
 import { ORDER_STATUSES, type Filter, type Order, type OrderStatus } from '@/lib/pedidos/types'
 import { cx } from './cx'
 import { PageFrame, Panel } from './PageFrame'
@@ -13,24 +16,32 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   return <span className={cx(`status status-${status.toLowerCase().replaceAll(' ', '-')}`)}><span className={cx("status-dot")} />{status}</span>
 }
 
-function nextOrderStatus(status: OrderStatus): OrderStatus | undefined {
-  if (status === "Pendiente de presupuesto") return "Pendiente de seña"
-  const currentIndex = ORDER_STATUSES.indexOf(status)
-  return ORDER_STATUSES[currentIndex + 1]
+function matchesSearch(order: Order, search: string) {
+  const query = search.trim()
+  if (!query) return true
+  return order.code.includes(normalizeOrderCode(query)) || order.customer.toLowerCase().includes(query.toLowerCase())
 }
 
-function OrderDetail({ order, onBack, onUpdate }: { order: Order; onBack: () => void; onUpdate: (status: OrderStatus) => Promise<void> }) {
+function OrderDetail({ order, onBack, onUpdate }: { order: Order; onBack: () => void; onUpdate: (status: OrderStatus) => Promise<string | null> }) {
   const currentIndex = ORDER_STATUSES.indexOf(order.status)
-  const nextStatus = nextOrderStatus(order.status)
+  const waitingQuote = requierePresupuesto(order.status)
+  const nextStatus = siguienteEstadoManual(order.status)
   const [pendingStatus, setPendingStatus] = useState<OrderStatus | ''>('')
   const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const handleUpdate = async () => {
     if (!pendingStatus) return
     setSaving(true)
-    await onUpdate(pendingStatus)
+    setConfirmation('')
+    setError('')
+    const updateError = await onUpdate(pendingStatus)
     setSaving(false)
+    if (updateError) {
+      setError(updateError)
+      return
+    }
     setConfirmation(`Estado actualizado a: ${pendingStatus}`)
     setPendingStatus('')
   }
@@ -59,7 +70,7 @@ function OrderDetail({ order, onBack, onUpdate }: { order: Order; onBack: () => 
       </Panel>
       <Panel eyebrow="SEGUIMIENTO" title="Estado del pedido" extra={<span className={cx("stage-count")}>Etapa {currentIndex + 1} de {ORDER_STATUSES.length}</span>}>
         <div className={cx("status-stepper")}>{ORDER_STATUSES.map((stage, index) => <div className={cx(`step ${index === currentIndex ? 'step-current' : ''} ${index < currentIndex ? 'step-complete' : ''}`)} key={stage}><div className={cx("step-badge")}>{index < currentIndex ? <Check /> : <span>{index + 1}</span>}</div><span>{stage}</span>{index < ORDER_STATUSES.length - 1 && <div className={cx("step-line")} />}</div>)}</div>
-        <div className={cx("status-actions")}>{confirmation && <p className={cx("status-confirmation")} role="status">{confirmation}</p>}{nextStatus ? <><label htmlFor="next-status">Próxima etapa</label><div className={cx("status-update-row")}><select id="next-status" value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value as OrderStatus)}><option value="">Seleccionar próxima etapa</option><option value={nextStatus}>{nextStatus}</option></select><button className={cx("primary-button")} disabled={!pendingStatus || saving} onClick={handleUpdate}>{saving ? 'Guardando...' : 'Actualizar estado'}</button></div></> : <p className={cx("completed-note")}>Este pedido ya fue entregado.</p>}</div>
+        <div className={cx("status-actions")}>{confirmation && <p className={cx("status-confirmation")} role="status">{confirmation}</p>}{error && <p className={cx("status-error")} role="alert">{error}</p>}{waitingQuote && <p className={cx("completed-note")}>{order.quote?.status === 'Generado' ? 'El presupuesto está generado; falta cargar la fecha de entrega y el monto.' : 'Este pedido necesita un presupuesto.'} Cuando el presupuesto quede disponible para el cliente, el pedido pasa solo a &quot;Pendiente de seña&quot;. <Link className={cx("inline-link")} href="/operador/presupuesto">Ir a Presupuesto</Link></p>}{waitingQuote ? null : nextStatus ? <><label htmlFor="next-status">Próxima etapa</label><div className={cx("status-update-row")}><select id="next-status" value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value as OrderStatus)}><option value="">Seleccionar próxima etapa</option><option value={nextStatus}>{nextStatus}</option></select><button className={cx("primary-button")} disabled={!pendingStatus || saving} onClick={handleUpdate}>{saving ? 'Guardando...' : 'Actualizar estado'}</button></div></> : <p className={cx("completed-note")}>Este pedido ya fue entregado.</p>}</div>
       </Panel>
     </PageFrame>
   )
@@ -70,6 +81,7 @@ export function OperadorPedidos() {
   const [error, setError] = useState('')
   const [activeFilter, setActiveFilter] = useState<Filter>('Todos')
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     void listarPedidos().then((orderResult) => {
@@ -81,17 +93,24 @@ export function OperadorPedidos() {
     })
   }, [])
 
-  const visibleOrders = useMemo(() => activeFilter === 'Todos' ? orders : orders.filter((order) => order.status === activeFilter), [activeFilter, orders])
+  const searchedOrders = useMemo(() => orders.filter((order) => matchesSearch(order, search)), [orders, search])
+  const visibleOrders = useMemo(() => activeFilter === 'Todos' ? searchedOrders : searchedOrders.filter((order) => order.status === activeFilter), [activeFilter, searchedOrders])
 
   const updateOrderStatus = async (status: OrderStatus) => {
-    if (!selectedOrder) return
+    if (!selectedOrder) return 'No hay un pedido seleccionado.'
     const result = await actualizarEstadoPedido(selectedOrder.id, status)
-    if (!result.ok) {
-      setError(result.error)
-      return
-    }
+    if (!result.ok) return result.error
     setSelectedOrder(result.order)
     setOrders((current) => current.map((order) => order.id === result.order.id ? result.order : order))
+    return null
+  }
+
+  // Con Enter, si el código coincide exacto con un pedido, se abre su detalle.
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const code = normalizeOrderCode(search)
+    const exact = orders.find((order) => order.code === code)
+    if (exact) setSelectedOrder(exact)
   }
 
   if (selectedOrder) {
@@ -101,11 +120,16 @@ export function OperadorPedidos() {
   return (
     <PageFrame breadcrumb={['Gestión', 'Pedidos']} eyebrow="OPERACIONES" title="Pedidos ingresados" description={error || 'Gestioná y seguí todos los pedidos personalizados de tu tienda.'}>
       <section className={cx("orders-section")} aria-label="Listado de pedidos">
+        <form className={cx("orders-search")} role="search" onSubmit={handleSearchSubmit}>
+          <Search aria-hidden="true" />
+          <label className={cx("sr-only")} htmlFor="orders-search-input">Buscar pedido por código o cliente</label>
+          <input id="orders-search-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por código (ej: A1703) o cliente" autoComplete="off" />
+        </form>
         <div className={cx("filter-row")} role="group" aria-label="Filtrar pedidos">
           {filters.map((filter) => (
             <button key={filter} className={cx(`filter-chip ${activeFilter === filter ? 'filter-chip-active' : ''}`)} onClick={() => setActiveFilter(filter)}>
               {filter}
-              {filter !== 'Todos' && <span className={cx("filter-count")}>{orders.filter((order) => order.status === filter).length}</span>}
+              {filter !== 'Todos' && <span className={cx("filter-count")}>{searchedOrders.filter((order) => order.status === filter).length}</span>}
             </button>
           ))}
         </div>
@@ -113,8 +137,17 @@ export function OperadorPedidos() {
           {visibleOrders.length === 0 ? (
             <div className={cx("empty-state")}>
               <div className={cx("empty-icon")}><Package /></div>
-              <h2>Todavía no hay pedidos personalizados cargados</h2>
-              <p>Los nuevos pedidos aparecerán en este listado.</p>
+              {orders.length === 0 ? (
+                <>
+                  <h2>Todavía no hay pedidos personalizados cargados</h2>
+                  <p>Los nuevos pedidos aparecerán en este listado.</p>
+                </>
+              ) : (
+                <>
+                  <h2>No hay pedidos que coincidan</h2>
+                  <p>Probá con otro código, otro cliente u otro filtro de estado.</p>
+                </>
+              )}
             </div>
           ) : visibleOrders.map((order) => (
             <button className={cx("order-row")} key={order.id} onClick={() => setSelectedOrder(order)}>

@@ -7,12 +7,15 @@ import {
   mapCotizacion,
   mapPedido,
   normalizeOrderCode,
+  toClientOrder,
 } from "@/lib/pedidos/mappers";
 import { calcularPresupuesto } from "@/lib/pedidos/calculo";
+import { ESTADOS_QUE_REQUIEREN_PRESUPUESTO, requierePresupuesto, siguienteEstadoManual } from "@/lib/pedidos/estados";
 import {
   COLOR_BY_VALUE,
   ORDER_STATUSES,
   PEDIDO_SELECT,
+  type ClientOrder,
   type Cotizacion,
   type CotizacionRow,
   type CotizacionValues,
@@ -173,7 +176,7 @@ export async function createPedido(
 
 export async function consultarPedido(
   code: string,
-): Promise<{ ok: true; order: Order | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; order: ClientOrder | null } | { ok: false; error: string }> {
   const codigo = normalizeOrderCode(code);
   if (!codigo) return { ok: true, order: null };
 
@@ -185,7 +188,7 @@ export async function consultarPedido(
     .maybeSingle();
 
   if (error) return { ok: false, error: schemaError(error.message) };
-  return { ok: true, order: data ? mapPedido(data as PedidoRow) : null };
+  return { ok: true, order: data ? toClientOrder(mapPedido(data as PedidoRow)) : null };
 }
 
 export async function listarPedidos(): Promise<
@@ -210,14 +213,44 @@ export async function actualizarEstadoPedido(
   }
 
   const supabase = createAdminClient();
+  const { data: current, error: currentError } = await supabase
+    .from("pedidos")
+    .select("estado")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (currentError) return { ok: false, error: schemaError(currentError.message) };
+  if (!current) return { ok: false, error: "No se encontró el pedido." };
+
+  const estadoActual = current.estado as OrderStatus;
+  if (requierePresupuesto(estadoActual)) {
+    return {
+      ok: false,
+      error: 'Este pedido pasa solo a "Pendiente de seña" cuando su presupuesto queda disponible. Terminalo desde la sección Presupuesto.',
+    };
+  }
+
+  const siguiente = siguienteEstadoManual(estadoActual);
+  if (siguiente !== status) {
+    return {
+      ok: false,
+      error: siguiente
+        ? `Desde "${estadoActual}" solo se puede pasar a "${siguiente}".`
+        : "Este pedido ya fue entregado.",
+    };
+  }
+
+  // El filtro por estado evita pisar un cambio hecho al mismo tiempo desde otra pantalla.
   const { data, error } = await supabase
     .from("pedidos")
     .update({ estado: status, updated_at: new Date().toISOString() })
     .eq("id", id)
+    .eq("estado", estadoActual)
     .select(PEDIDO_SELECT)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) return { ok: false, error: schemaError(error?.message ?? "No se pudo actualizar.") };
+  if (error) return { ok: false, error: schemaError(error.message) };
+  if (!data) return { ok: false, error: "El pedido cambió de estado mientras tanto. Volvé al listado y abrilo de nuevo." };
   revalidatePath("/operador");
   revalidatePath("/cliente/consultar-pedido");
   return { ok: true, order: mapPedido(data as PedidoRow) };
@@ -310,27 +343,35 @@ export async function guardarParametrosCotizacion(
   return { ok: true, cotizacion: mapCotizacion(data as CotizacionRow) };
 }
 
+type PresupuestoResult = { ok: true; order: Order } | { ok: false; error: string };
+
+async function leerPedido(supabase: ReturnType<typeof createAdminClient>, orderId: string) {
+  const { data, error } = await supabase
+    .from("pedidos")
+    .select(PEDIDO_SELECT)
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) return { ok: false as const, error: schemaError(error.message) };
+  if (!data) return { ok: false as const, error: "No se encontró el pedido." };
+  return { ok: true as const, order: mapPedido(data as PedidoRow) };
+}
+
+// Fecha de hoy en Argentina, para no aceptar entregas en el pasado.
+function hoyEnArgentina() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Jujuy" }).format(new Date());
+}
+
+// HU-08: calcula el presupuesto con los parámetros vigentes y lo guarda como "Generado".
+// Si el pedido ya tiene un presupuesto Generado, lo recalcula en lugar de crear otro.
 export async function generarPresupuesto(
   orderId: string,
   options: {
-    fechaEstimada: string;
     cantidadMaterial: number;
     tiempoHoras: number;
     cantidadLaca?: number;
     acetonaCm3?: number;
-    total?: number;
   },
-): Promise<{ ok: true; order: Order } | { ok: false; error: string }> {
-  const fechaEstimada = options.fechaEstimada.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaEstimada)) {
-    return { ok: false, error: "Cargá una fecha estimada de entrega válida." };
-  }
-
-  const parsedDate = new Date(`${fechaEstimada}T00:00:00`);
-  if (Number.isNaN(parsedDate.getTime())) {
-    return { ok: false, error: "Cargá una fecha estimada de entrega válida." };
-  }
-
+): Promise<PresupuestoResult> {
   const cantidadMaterial = Number(options.cantidadMaterial);
   const tiempoHoras = Number(options.tiempoHoras);
   const cantidadLaca = Number(options.cantidadLaca ?? 0);
@@ -346,68 +387,121 @@ export async function generarPresupuesto(
   }
 
   const supabase = createAdminClient();
-  const [{ data: order, error: orderError }, { data: cotizacionRow, error: cotizacionError }] =
-    await Promise.all([
-      supabase.from("pedidos").select("*").eq("id", orderId).single(),
-      supabase
-        .from("parametros_cotizacion")
-        .select("*")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+  const [pedido, { data: cotizacionRow, error: cotizacionError }] = await Promise.all([
+    leerPedido(supabase, orderId),
+    supabase
+      .from("parametros_cotizacion")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
-  if (orderError || !order) {
-    return { ok: false, error: schemaError(orderError?.message ?? "No se encontró el pedido.") };
-  }
+  if (!pedido.ok) return pedido;
   if (cotizacionError || !cotizacionRow) {
     return { ok: false, error: schemaError(cotizacionError?.message ?? "No se encontró la cotización base.") };
   }
 
+  const order = pedido.order;
+  if (!requierePresupuesto(order.status)) {
+    return { ok: false, error: `El pedido está en "${order.status}" y ya no necesita presupuesto.` };
+  }
+  if (order.status === "Pendiente de presupuesto" && order.quote?.status === "Disponible") {
+    return { ok: false, error: "Este pedido ya tiene un presupuesto disponible y espera la respuesta del cliente." };
+  }
+
   const cotizacion = mapCotizacion(cotizacionRow as CotizacionRow);
-  const calculatedTotal = calcularPresupuesto(cotizacion, {
+  const totalCalculado = calcularPresupuesto(cotizacion, {
     gramos: cantidadMaterial,
     horas: tiempoHoras,
     piezasLaca: cantidadLaca,
     acetonaCm3,
   }).total;
-  const total = options.total == null ? calculatedTotal : Number(options.total);
-
-  if (!(total > 0)) {
-    return { ok: false, error: "El monto del presupuesto debe ser mayor a 0." };
-  }
-
-  const { error } = await supabase.from("presupuestos").insert({
-    pedido_id: orderId,
+  const valores = {
     id_cotizacion: cotizacion.id,
     cantidad_material: cantidadMaterial,
     tiempo_horas: tiempoHoras,
     cantidad_laca: cantidadLaca,
     acetona_cm3: acetonaCm3,
-    fecha_entrega: fechaEstimada,
-    total_calculado: calculatedTotal,
-    total,
-    estado: "Enviado",
-  });
+    total_calculado: totalCalculado,
+    total: Math.round(totalCalculado),
+  };
+
+  const { error } = order.quote?.status === "Generado"
+    ? await supabase.from("presupuestos").update(valores).eq("id", order.quote.id).eq("estado", "Generado")
+    : await supabase.from("presupuestos").insert({
+        ...valores,
+        pedido_id: orderId,
+        // Se precarga la fecha estimada del pedido (o hoy, si ya pasó); el operador la ajusta en HU-09.
+        fecha_entrega: order.estimatedDate > hoyEnArgentina() ? order.estimatedDate : hoyEnArgentina(),
+        estado: "Generado",
+      });
 
   if (error) return { ok: false, error: schemaError(error.message) };
 
-  const { data: updated, error: statusError } = await supabase
-    .from("pedidos")
-    .update({
-      estado: "Pendiente de seña",
-      fecha_estimada: fechaEstimada,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", orderId)
-    .select(PEDIDO_SELECT)
-    .single();
+  const actualizado = await leerPedido(supabase, orderId);
+  if (actualizado.ok) revalidatePath("/operador");
+  return actualizado;
+}
 
-  if (statusError || !updated) {
-    return { ok: false, error: schemaError(statusError?.message ?? "El presupuesto se guardó, pero no se pudo actualizar el estado.") };
+// HU-09: carga la fecha de entrega, ajusta el monto y deja el presupuesto "Disponible" para el cliente.
+// En el mismo paso el sistema pasa el pedido a "Pendiente de seña".
+export async function publicarPresupuesto(
+  orderId: string,
+  options: { fechaEntrega: string; total: number },
+): Promise<PresupuestoResult> {
+  const fechaEntrega = options.fechaEntrega.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaEntrega) || Number.isNaN(new Date(`${fechaEntrega}T00:00:00`).getTime())) {
+    return { ok: false, error: "Cargá una fecha estimada de entrega válida." };
+  }
+  if (fechaEntrega < hoyEnArgentina()) {
+    return { ok: false, error: "La fecha de entrega no puede ser anterior a hoy." };
+  }
+  const total = Number(options.total);
+  if (!(total > 0)) {
+    return { ok: false, error: "El monto del presupuesto debe ser mayor a 0." };
   }
 
-  revalidatePath("/operador");
-  revalidatePath("/cliente/consultar-pedido");
-  return { ok: true, order: mapPedido(updated as PedidoRow) };
+  const supabase = createAdminClient();
+  const pedido = await leerPedido(supabase, orderId);
+  if (!pedido.ok) return pedido;
+
+  const quote = pedido.order.quote;
+  if (quote?.status !== "Generado") {
+    return {
+      ok: false,
+      error: quote
+        ? "Este presupuesto ya está disponible para el cliente."
+        : "Primero generá el presupuesto del pedido.",
+    };
+  }
+
+  // El filtro por estado evita publicar dos veces el mismo presupuesto.
+  const { data: publicado, error } = await supabase
+    .from("presupuestos")
+    .update({ fecha_entrega: fechaEntrega, total, estado: "Disponible" })
+    .eq("id", quote.id)
+    .eq("estado", "Generado")
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { ok: false, error: schemaError(error.message) };
+  if (!publicado) return { ok: false, error: "El presupuesto cambió mientras tanto. Volvé a elegir el pedido." };
+
+  const { error: pedidoError } = await supabase
+    .from("pedidos")
+    .update({ estado: "Pendiente de seña", fecha_estimada: fechaEntrega, updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .in("estado", ESTADOS_QUE_REQUIEREN_PRESUPUESTO);
+
+  if (pedidoError) {
+    return { ok: false, error: schemaError(`El presupuesto quedó disponible, pero no se pudo actualizar el pedido: ${pedidoError.message}`) };
+  }
+
+  const actualizado = await leerPedido(supabase, orderId);
+  if (actualizado.ok) {
+    revalidatePath("/operador");
+    revalidatePath("/cliente/consultar-pedido");
+  }
+  return actualizado;
 }

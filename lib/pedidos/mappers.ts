@@ -1,4 +1,14 @@
-import type { ClienteRow, Color, Cotizacion, CotizacionRow, Order, PedidoRow } from "@/lib/pedidos/types";
+import type {
+  ClienteRow,
+  ClientOrder,
+  Color,
+  Cotizacion,
+  CotizacionRow,
+  Order,
+  PedidoRow,
+  PresupuestoRow,
+  Quote,
+} from "@/lib/pedidos/types";
 
 const dateFormatter = new Intl.DateTimeFormat("es-AR", {
   day: "2-digit",
@@ -48,11 +58,32 @@ export function mapPedido(row: PedidoRow): Order {
     estimatedDate: row.fecha_estimada?.slice(0, 10) ?? "",
     status: row.estado,
     createdAt: row.created_at,
-    quoteTotal: latestQuote ? Number(latestQuote.total) : undefined,
-    quoteDeliveryDate: latestQuote?.fecha_entrega
-      ? formatOrderDate(latestQuote.fecha_entrega)
-      : undefined,
+    quote: latestQuote ? mapPresupuesto(latestQuote) : undefined,
   };
+}
+
+function mapPresupuesto(row: PresupuestoRow): Quote {
+  const deliveryDate = row.fecha_entrega?.slice(0, 10) ?? "";
+  return {
+    id: row.id,
+    status: row.estado === "Disponible" ? "Disponible" : "Generado",
+    total: Number(row.total),
+    calculatedTotal: Number(row.total_calculado),
+    deliveryDate,
+    deliveryDateLabel: formatOrderDate(deliveryDate),
+    materialGrams: Number(row.cantidad_material),
+    printHours: Number(row.tiempo_horas),
+    lacquerPieces: Number(row.cantidad_laca),
+    acetoneCm3: Number(row.acetona_cm3),
+  };
+}
+
+// HU-10: el cliente solo ve el presupuesto cuando está Disponible, y sin el detalle de costos.
+export function toClientOrder(order: Order): ClientOrder {
+  const { quote, ...rest } = order;
+  return quote?.status === "Disponible"
+    ? { ...rest, quote: { total: quote.total, deliveryDateLabel: quote.deliveryDateLabel } }
+    : rest;
 }
 
 export function mapCotizacion(row: CotizacionRow): Cotizacion {

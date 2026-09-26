@@ -3,7 +3,8 @@
 import Image from "next/image"
 import { FormEvent, useState } from "react"
 import { consultarPedido } from "@/app/actions/pedidos"
-import { ORDER_STATUSES, type Order } from "@/lib/pedidos/types"
+import { requierePresupuesto } from "@/lib/pedidos/estados"
+import { ORDER_STATUSES, type ClientOrder } from "@/lib/pedidos/types"
 import styles from "./cliente.module.css"
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -16,7 +17,7 @@ function cx(...values: Array<string | false | null | undefined>) {
 
 export function ClienteConsultaPedido() {
   const [code, setCode] = useState("")
-  const [result, setResult] = useState<Order | null>(null)
+  const [result, setResult] = useState<ClientOrder | null>(null)
   const [searched, setSearched] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [error, setError] = useState("")
@@ -116,16 +117,18 @@ export function ClienteConsultaPedido() {
                     <p className={cx("eyebrow")}>Detalles ingresados</p>
                     <h3>Tu pedido personalizado</h3>
                   </div>
-                  {result.quoteTotal != null && (
+                  {result.quote ? (
                     <div className={cx("quote-amount")}>
                       <span>Monto a abonar</span>
-                      <strong>{new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(result.quoteTotal)}</strong>
-                      {result.quoteDeliveryDate && (
-                        <>
-                          <span>Fecha estimada de entrega</span>
-                          <b>{result.quoteDeliveryDate}</b>
-                        </>
-                      )}
+                      <strong>{new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(result.quote.total)}</strong>
+                      <span>Fecha estimada de entrega</span>
+                      <b>{result.quote.deliveryDateLabel}</b>
+                    </div>
+                  ) : requierePresupuesto(result.status) && (
+                    <div className={cx("quote-amount quote-pending")}>
+                      <span>Presupuesto</span>
+                      <b>En preparación</b>
+                      <small>Todavía estamos preparando el presupuesto de tu pedido. Consultá de nuevo más tarde con tu código.</small>
                     </div>
                   )}
                   {result.referenceUrl && (

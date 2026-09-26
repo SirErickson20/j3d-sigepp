@@ -336,6 +336,34 @@ end $$;
 alter table public.pedidos
   alter column estado set default 'Pendiente de presupuesto';
 
+-- Migración: el estado viejo "Enviado" equivale a "Disponible" (HU-09).
+update public.presupuestos set estado = 'Disponible' where estado = 'Enviado';
+
+-- Migración: un pedido con presupuesto Disponible ya no espera presupuesto (HU-09).
+update public.pedidos p
+set estado = 'Pendiente de seña', updated_at = now()
+where p.estado = 'Pendiente de presupuesto'
+  and (
+    select q.estado from public.presupuestos q
+    where q.pedido_id = p.id
+    order by q.created_at desc
+    limit 1
+  ) = 'Disponible';
+
+-- El presupuesto solo tiene los estados del TP: Generado (HU-08) y Disponible (HU-09).
+alter table public.presupuestos alter column estado set default 'Generado';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'presupuestos_estado_check'
+  ) then
+    alter table public.presupuestos
+      add constraint presupuestos_estado_check
+      check (estado in ('Generado', 'Disponible'));
+  end if;
+end $$;
+
 alter table public.clientes enable row level security;
 alter table public.pedidos enable row level security;
 alter table public.parametros_cotizacion enable row level security;
