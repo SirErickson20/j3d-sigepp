@@ -105,3 +105,11 @@
 .quote-summary span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; }
 .quote-summary strong { color: #e6e7e9; font-size: 18px; font-variant-numeric: tabular-nums; }
 .quote-success .secondary-button { margin-top: 10px; }
+
+/* HU-15: filtro de período como una columna alineada (etiqueta, selector, fechas y rango) */
+.period-filter { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 8px; }
+.period-filter label { margin-bottom: -2px; }
+.period-filter select { width: 100%; cursor: pointer; }
+.custom-dates { width: 100%; }
+.custom-dates input { flex: 1; min-width: 0; color-scheme: dark; }
+.period-range { width: 100%; margin: 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
