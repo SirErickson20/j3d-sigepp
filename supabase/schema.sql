@@ -378,5 +378,131 @@ select 16000, 150000, 31, 400000, 0.3, 1, 700, 0, 390, 2, 7000, 0
 where not exists (select 1 from public.parametros_cotizacion);
 
 insert into storage.buckets (id, name, public)
-values ('referencias', 'referencias', true)
+values ('referencias', 'referencias', false)
 on conflict (id) do nothing;
+
+-- =====================================================================
+-- Correcciones de la inspección del TP3 (errores 1, 4, 6, 7 y 11) y del TP7.
+-- Idempotente: se puede volver a ejecutar sin romper nada.
+-- =====================================================================
+
+-- HU-01 / error 1: usuarios con rol de operador. El rol lo lee solo el servidor (clave de servicio).
+-- Para dar de alta un operador: node scripts/crear-operador.mjs <email> "<nombre>"
+create table if not exists public.operadores (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  nombre text not null,
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.operadores enable row level security;
+
+-- Error 4: el tipo de producto, el estado y la cantidad se controlan también en la base.
+-- NOT VALID: se aplica a los pedidos nuevos sin rechazar los que ya estaban cargados.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'pedidos_producto_check') then
+    alter table public.pedidos add constraint pedidos_producto_check
+      check (producto in ('Mate', 'Llavero', 'Medalla', 'Vaso', 'Juguete', 'Maceta', 'Soporte', 'Otros')) not valid;
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'pedidos_estado_check') then
+    alter table public.pedidos add constraint pedidos_estado_check
+      check (estado in ('Pendiente de presupuesto', 'En rediseño', 'Pendiente de seña', 'En producción',
+                        'Finalizado', 'Pendiente de saldo', 'Entregado')) not valid;
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'pedidos_cantidad_maxima_check') then
+    alter table public.pedidos add constraint pedidos_cantidad_maxima_check
+      check (cantidad between 1 and 500) not valid;
+  end if;
+end $$;
+
+-- Error 11: "En rediseño" es una etapa opcional. Se registra si el pedido pasó por ella
+-- para no mostrarla como cumplida cuando nunca ocurrió.
+alter table public.pedidos add column if not exists paso_por_rediseno boolean not null default false;
+update public.pedidos set paso_por_rediseno = true where estado = 'En rediseño' and not paso_por_rediseno;
+
+create or replace function public.marcar_paso_por_rediseno()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.estado = 'En rediseño' then
+    new.paso_por_rediseno := true;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists pedidos_marcar_rediseno on public.pedidos;
+create trigger pedidos_marcar_rediseno
+  before insert or update of estado on public.pedidos
+  for each row execute function public.marcar_paso_por_rediseno();
+
+-- Error 7: un pedido no puede tener dos presupuestos "Generado" a la vez.
+-- Si ya había duplicados, se conserva el más reciente.
+delete from public.presupuestos p
+using public.presupuestos q
+where p.estado = 'Generado'
+  and q.estado = 'Generado'
+  and p.pedido_id = q.pedido_id
+  and (p.created_at, p.id) < (q.created_at, q.id);
+
+create unique index if not exists presupuestos_un_generado_por_pedido
+  on public.presupuestos (pedido_id)
+  where estado = 'Generado';
+
+-- Error 6: publicar el presupuesto y pasar el pedido a "Pendiente de seña" en una sola transacción.
+-- Devuelve 'ok', o 'conflicto' si el presupuesto o el pedido cambiaron mientras tanto (no modifica nada).
+create or replace function public.publicar_presupuesto(
+  p_presupuesto_id uuid,
+  p_pedido_id uuid,
+  p_fecha_entrega date,
+  p_total numeric
+)
+returns text
+language plpgsql
+set search_path = public
+as $$
+begin
+  if p_total is null or p_total <= 0 then
+    raise exception 'El monto del presupuesto debe ser mayor a 0.';
+  end if;
+
+  update public.presupuestos
+  set fecha_entrega = p_fecha_entrega, total = p_total, estado = 'Disponible'
+  where id = p_presupuesto_id
+    and pedido_id = p_pedido_id
+    and estado = 'Generado';
+  if not found then
+    return 'conflicto';
+  end if;
+
+  update public.pedidos
+  set estado = 'Pendiente de seña', fecha_estimada = p_fecha_entrega, updated_at = now()
+  where id = p_pedido_id
+    and estado in ('Pendiente de presupuesto', 'En rediseño');
+  if not found then
+    -- Deshace la publicación: la función corre dentro de una transacción.
+    raise exception using errcode = 'P0001', message = 'conflicto';
+  end if;
+
+  return 'ok';
+exception
+  when raise_exception then
+    if sqlerrm = 'conflicto' then
+      return 'conflicto';
+    end if;
+    raise;
+end;
+$$;
+
+-- Las funciones de public se pueden llamar desde la API pública: esta solo la usa el servidor.
+revoke all on function public.publicar_presupuesto(uuid, uuid, date, numeric) from public, anon, authenticated;
+grant execute on function public.publicar_presupuesto(uuid, uuid, date, numeric) to service_role;
+revoke all on function public.marcar_paso_por_rediseno() from public, anon, authenticated;
+
+-- Lineamiento 1 del TP7: los archivos de referencia dejan de tener enlace público.
+-- El operador los ve con enlaces temporales generados por el servidor.
+update storage.buckets set public = false where id = 'referencias';

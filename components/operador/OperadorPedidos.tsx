@@ -16,6 +16,14 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   return <span className={cx(`status status-${status.toLowerCase().replaceAll(' ', '-')}`)}><span className={cx("status-dot")} />{status}</span>
 }
 
+const dayFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Jujuy' })
+
+// Prueba de aceptación del TP3 (HU-04/05): filtro de los pedidos ingresados hoy.
+function isFromToday(order: Order, today: string) {
+  const created = new Date(order.createdAt)
+  return !Number.isNaN(created.getTime()) && dayFormatter.format(created) === today
+}
+
 function matchesSearch(order: Order, search: string) {
   const query = search.trim()
   if (!query) return true
@@ -69,7 +77,12 @@ function OrderDetail({ order, onBack, onUpdate }: { order: Order; onBack: () => 
         </div>
       </Panel>
       <Panel eyebrow="SEGUIMIENTO" title="Estado del pedido" extra={<span className={cx("stage-count")}>Etapa {currentIndex + 1} de {ORDER_STATUSES.length}</span>}>
-        <div className={cx("status-stepper")}>{ORDER_STATUSES.map((stage, index) => <div className={cx(`step ${index === currentIndex ? 'step-current' : ''} ${index < currentIndex ? 'step-complete' : ''}`)} key={stage}><div className={cx("step-badge")}>{index < currentIndex ? <Check /> : <span>{index + 1}</span>}</div><span>{stage}</span>{index < ORDER_STATUSES.length - 1 && <div className={cx("step-line")} />}</div>)}</div>
+        <div className={cx("status-stepper")}>{ORDER_STATUSES.map((stage, index) => {
+          // Error 11 del TP3: "En rediseño" es opcional; si el pedido no pasó por ahí se muestra omitida.
+          const skipped = stage === 'En rediseño' && index < currentIndex && !order.wentThroughRedesign
+          const complete = index < currentIndex && !skipped
+          return <div className={cx(`step ${index === currentIndex ? 'step-current' : ''} ${complete ? 'step-complete' : ''} ${skipped ? 'step-skipped' : ''}`)} key={stage} title={skipped ? 'Etapa no necesaria para este pedido' : undefined}><div className={cx("step-badge")}>{complete ? <Check /> : <span>{skipped ? '–' : index + 1}</span>}</div><span>{stage}</span>{index < ORDER_STATUSES.length - 1 && <div className={cx("step-line")} />}</div>
+        })}</div>
         <div className={cx("status-actions")}>{confirmation && <p className={cx("status-confirmation")} role="status">{confirmation}</p>}{error && <p className={cx("status-error")} role="alert">{error}</p>}{waitingQuote && <p className={cx("completed-note")}>{order.quote?.status === 'Generado' ? 'El presupuesto está generado; falta cargar la fecha de entrega y el monto.' : 'Este pedido necesita un presupuesto.'} Cuando el presupuesto quede disponible para el cliente, el pedido pasa solo a &quot;Pendiente de seña&quot;. <Link className={cx("inline-link")} href="/operador/presupuesto">Ir a Presupuesto</Link></p>}{waitingQuote ? null : nextStatus ? <><label htmlFor="next-status">Próxima etapa</label><div className={cx("status-update-row")}><select id="next-status" value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value as OrderStatus)}><option value="">Seleccionar próxima etapa</option><option value={nextStatus}>{nextStatus}</option></select><button className={cx("primary-button")} disabled={!pendingStatus || saving} onClick={handleUpdate}>{saving ? 'Guardando...' : 'Actualizar estado'}</button></div></> : <p className={cx("completed-note")}>Este pedido ya fue entregado.</p>}</div>
       </Panel>
     </PageFrame>
@@ -82,6 +95,8 @@ export function OperadorPedidos() {
   const [activeFilter, setActiveFilter] = useState<Filter>('Todos')
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [search, setSearch] = useState('')
+  const [onlyToday, setOnlyToday] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     void listarPedidos().then((orderResult) => {
@@ -90,10 +105,13 @@ export function OperadorPedidos() {
         return
       }
       setOrders(orderResult.orders)
-    })
+    }).finally(() => setLoading(false))
   }, [])
 
-  const searchedOrders = useMemo(() => orders.filter((order) => matchesSearch(order, search)), [orders, search])
+  const searchedOrders = useMemo(() => {
+    const today = dayFormatter.format(new Date())
+    return orders.filter((order) => matchesSearch(order, search) && (!onlyToday || isFromToday(order, today)))
+  }, [orders, search, onlyToday])
   const visibleOrders = useMemo(() => activeFilter === 'Todos' ? searchedOrders : searchedOrders.filter((order) => order.status === activeFilter), [activeFilter, searchedOrders])
 
   const updateOrderStatus = async (status: OrderStatus) => {
@@ -126,6 +144,9 @@ export function OperadorPedidos() {
           <input id="orders-search-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por código (ej: A1703) o cliente" autoComplete="off" />
         </form>
         <div className={cx("filter-row")} role="group" aria-label="Filtrar pedidos">
+          <button className={cx(`filter-chip ${onlyToday ? 'filter-chip-active' : ''}`)} aria-pressed={onlyToday} onClick={() => setOnlyToday(!onlyToday)}>
+            Pedidos de hoy
+          </button>
           {filters.map((filter) => (
             <button key={filter} className={cx(`filter-chip ${activeFilter === filter ? 'filter-chip-active' : ''}`)} onClick={() => setActiveFilter(filter)}>
               {filter}
@@ -134,7 +155,9 @@ export function OperadorPedidos() {
           ))}
         </div>
         <div className={cx("orders-list")}>
-          {visibleOrders.length === 0 ? (
+          {loading ? (
+            <p className={cx("loading-note")} role="status">Cargando pedidos...</p>
+          ) : visibleOrders.length === 0 ? (
             <div className={cx("empty-state")}>
               <div className={cx("empty-icon")}><Package /></div>
               {orders.length === 0 ? (

@@ -52,11 +52,13 @@ export function mapPedido(row: PedidoRow): Order {
     quantity: row.cantidad,
     designDescription: row.diseno,
     referenceFile: row.archivo_nombre ?? undefined,
-    referenceUrl: row.archivo_url ?? undefined,
+    // El bucket es privado: acá queda la ruta del archivo y el servidor la cambia por un enlace temporal.
+    referenceUrl: referencePath(row.archivo_url),
     delivery: row.modalidad_entrega,
     date: formatOrderDate(row.fecha_estimada),
     estimatedDate: row.fecha_estimada?.slice(0, 10) ?? "",
     status: row.estado,
+    wentThroughRedesign: Boolean(row.paso_por_rediseno) || row.estado === "En rediseño",
     createdAt: row.created_at,
     quote: latestQuote ? mapPresupuesto(latestQuote) : undefined,
   };
@@ -78,12 +80,33 @@ function mapPresupuesto(row: PresupuestoRow): Quote {
   };
 }
 
-// HU-10: el cliente solo ve el presupuesto cuando está Disponible, y sin el detalle de costos.
+// Los pedidos viejos guardaban la URL pública completa; los nuevos guardan solo la ruta dentro del bucket.
+export function referencePath(value: string | null | undefined) {
+  if (!value) return undefined;
+  const marker = "/referencias/";
+  const index = value.indexOf(marker);
+  if (/^https?:\/\//i.test(value)) return index === -1 ? undefined : decodeURIComponent(value.slice(index + marker.length));
+  return value;
+}
+
+// HU-06 y HU-10: lo único que ve el cliente. Sin datos personales ni id interno, y el presupuesto
+// solo cuando está Disponible y sin el detalle de costos (error 2 de la inspección del TP3).
 export function toClientOrder(order: Order): ClientOrder {
-  const { quote, ...rest } = order;
-  return quote?.status === "Disponible"
-    ? { ...rest, quote: { total: quote.total, deliveryDateLabel: quote.deliveryDateLabel } }
-    : rest;
+  const base: ClientOrder = {
+    code: order.code,
+    product: order.product,
+    colors: order.colors,
+    quantity: order.quantity,
+    designDescription: order.designDescription,
+    referenceFile: order.referenceFile,
+    delivery: order.delivery,
+    date: order.date,
+    status: order.status,
+    wentThroughRedesign: order.wentThroughRedesign,
+  };
+  return order.quote?.status === "Disponible"
+    ? { ...base, quote: { total: order.quote.total, deliveryDateLabel: order.quote.deliveryDateLabel } }
+    : base;
 }
 
 export function mapCotizacion(row: CotizacionRow): Cotizacion {
@@ -122,10 +145,19 @@ export function cotizacionToFormValues(cotizacion: Cotizacion) {
   };
 }
 
+// Sin 0/O, 1/I/L ni U para que el código se pueda dictar y copiar sin confusiones.
+const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const ORDER_CODE_LENGTH = 8;
+
+// Error 2 de la inspección del TP3: el código viejo (A + 4 dígitos) tenía 9.000 combinaciones y
+// se podía recorrer. Ahora son 8 caracteres aleatorios (30^8 ≈ 6,5 × 10^11 combinaciones),
+// generados con el generador criptográfico.
 export function generateOrderCode() {
-  return `A${Math.floor(1000 + Math.random() * 9000)}`;
+  const bytes = new Uint32Array(ORDER_CODE_LENGTH);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => CODE_ALPHABET[value % CODE_ALPHABET.length]).join("");
 }
 
 export function normalizeOrderCode(value: string) {
-  return value.trim().toUpperCase().replace(/^#/, "");
+  return value.trim().toUpperCase().replace(/^#/, "").replace(/[\s-]/g, "");
 }

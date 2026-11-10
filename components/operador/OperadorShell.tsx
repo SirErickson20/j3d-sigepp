@@ -1,9 +1,10 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, ClipboardList, FileText, Package, X, type LucideIcon } from 'lucide-react'
+import { BarChart3, ClipboardList, FileText, LogOut, Package, X, type LucideIcon } from 'lucide-react'
+import { cerrarSesion } from '@/app/actions/auth'
 import { cx } from './cx'
 
 type NavItem = {
@@ -26,14 +27,11 @@ export function useOperadorMenu() {
   return useContext(MenuContext)
 }
 
-export function OperadorShell({ children }: { children: ReactNode }) {
+export function OperadorShell({ children, operador }: { children: ReactNode; operador: { nombre: string; email: string } }) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const menu = useMemo(() => ({ openMenu: () => setMenuOpen(true) }), [])
-
-  useEffect(() => {
-    setMenuOpen(false)
-  }, [pathname])
+  const iniciales = operador.nombre.split(/\s+/).filter(Boolean).slice(0, 2).map((parte) => parte[0]?.toUpperCase()).join('') || 'OP'
 
   return (
     <MenuContext.Provider value={menu}>
@@ -50,7 +48,7 @@ export function OperadorShell({ children }: { children: ReactNode }) {
               const active = item.exact ? pathname === item.href : pathname.startsWith(item.href)
               const Icon = item.icon
               return (
-                <Link key={item.href} href={item.href} className={cx(`nav-item ${active ? 'nav-item-active' : ''}`)}>
+                <Link key={item.href} href={item.href} className={cx(`nav-item ${active ? 'nav-item-active' : ''}`)} onClick={() => setMenuOpen(false)}>
                   <Icon />
                   {item.label}
                 </Link>
@@ -58,12 +56,18 @@ export function OperadorShell({ children }: { children: ReactNode }) {
             })}
           </nav>
           <div className={cx("sidebar-footer")}>
-            <div className={cx("operator-avatar")}>OP</div>
+            <div className={cx("operator-avatar")}>{iniciales}</div>
             <div>
-              <strong>Operador</strong>
-              <span>Panel de tienda</span>
+              <strong>{operador.nombre}</strong>
+              <span>{operador.email}</span>
             </div>
           </div>
+          <form action={cerrarSesion}>
+            <button className={cx("logout-button")} type="submit">
+              <LogOut />
+              Cerrar sesión
+            </button>
+          </form>
         </aside>
         {menuOpen && <button className={cx("sidebar-overlay")} type="button" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
         <main className={cx("main-content")}>{children}</main>

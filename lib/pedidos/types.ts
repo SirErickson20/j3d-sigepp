@@ -10,15 +10,18 @@ export const ORDER_STATUSES = [
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export type Filter = "Todos" | OrderStatus;
-export type ProductType =
-  | "Mate"
-  | "Llavero"
-  | "Medalla"
-  | "Vaso"
-  | "Juguete"
-  | "Maceta"
-  | "Soporte"
-  | "Otros";
+
+export const PRODUCT_TYPES = [
+  "Mate",
+  "Llavero",
+  "Medalla",
+  "Vaso",
+  "Juguete",
+  "Maceta",
+  "Soporte",
+  "Otros",
+] as const;
+export type ProductType = (typeof PRODUCT_TYPES)[number];
 export type Color =
   | "Rojo"
   | "Azul"
@@ -49,6 +52,8 @@ export type Order = {
   date: string;
   estimatedDate: string;
   status: OrderStatus;
+  // "En rediseño" es una etapa opcional: solo se marca como cumplida si el pedido pasó por ella.
+  wentThroughRedesign: boolean;
   createdAt: string;
   quote?: Quote;
 };
@@ -77,7 +82,12 @@ export type ClientQuote = {
   deliveryDateLabel: string;
 };
 
-export type ClientOrder = Omit<Order, "quote"> & { quote?: ClientQuote };
+// La consulta pública no devuelve datos personales (nombre, email, teléfono, domicilio)
+// ni el id interno: cualquiera que tenga el código puede verla.
+export type ClientOrder = Pick<
+  Order,
+  "code" | "product" | "colors" | "quantity" | "designDescription" | "referenceFile" | "delivery" | "date" | "status" | "wentThroughRedesign"
+> & { quote?: ClientQuote };
 
 export type Cotizacion = {
   id: string;
@@ -169,6 +179,7 @@ export type PedidoRow = {
   domicilio: string | null;
   ciudad: string | null;
   codigo_postal: string | null;
+  paso_por_rediseno?: boolean | null;
   created_at: string;
   clientes: ClienteRow | ClienteRow[] | null;
   presupuestos?: PresupuestoRow[] | PresupuestoRow | null;

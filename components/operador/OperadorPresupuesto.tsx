@@ -42,6 +42,8 @@ export function OperadorPresupuesto() {
   const [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [published, setPublished] = useState<Order | null>(null)
+  // Error 9 del TP3: mientras cargan los datos no se muestra "No hay pedidos pendientes".
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     void Promise.all([listarPedidos(), listarParametrosCotizacion()]).then(([orderResult, cotizacionResult]) => {
@@ -49,7 +51,7 @@ export function OperadorPresupuesto() {
       else setLoadError(orderResult.error)
       if (cotizacionResult.ok) setCotizacion(cotizacionResult.cotizacion)
       else setLoadError(cotizacionResult.error)
-    })
+    }).finally(() => setLoading(false))
   }, [])
 
   const pendingOrders = orders.filter((item) => requierePresupuesto(item.status))
@@ -80,8 +82,10 @@ export function OperadorPresupuesto() {
       <section className={cx("quote-orders")}>
         <p className={cx("eyebrow")}>PEDIDOS PENDIENTES</p>
         <h3>Elegí qué pedido presupuestar</h3>
-        {pendingOrders.length === 0 ? (
-          <p className={cx("quote-note")}>No hay pedidos pendientes de presupuesto.</p>
+        {loading ? (
+          <p className={cx("loading-note")} role="status">Cargando pedidos...</p>
+        ) : pendingOrders.length === 0 ? (
+          <p className={cx("quote-note")}>{loadError ? 'No se pudieron cargar los pedidos.' : 'No hay pedidos pendientes de presupuesto.'}</p>
         ) : (
           <div className={cx("pending-quotes-list")}>
             {pendingOrders.map((pendingOrder) => {
@@ -156,8 +160,12 @@ function QuoteWorkspace({ order, cotizacion, onChange, onPublished }: {
   const submittedTotal = toNumber(totalInput)
   const amountEdited = Boolean(generated) && Number.isFinite(submittedTotal) && submittedTotal !== Math.round(generated?.calculatedTotal ?? 0)
 
+  // Error 10 del TP3: al corregir un dato se borra el aviso anterior.
   const handleQuantityChange = (setter: (value: string) => void, value: string) => {
-    if (value === '' || Number(value) >= 0) setter(value)
+    if (value === '' || Number(value) >= 0) {
+      setter(value)
+      setCalcError('')
+    }
   }
 
   const handleGenerate = async () => {
@@ -260,7 +268,7 @@ function QuoteWorkspace({ order, cotizacion, onChange, onPublished }: {
           <div className={cx("quote-adjust")}>
             <label className={cx("quote-adjust-field")} htmlFor="quote-delivery-date">
               <span>Fecha estimada de entrega</span>
-              <input id="quote-delivery-date" type="date" value={deliveryDate} min={today} onChange={(event) => setDeliveryDate(event.target.value)} required />
+              <input id="quote-delivery-date" type="date" value={deliveryDate} min={today} onChange={(event) => { setDeliveryDate(event.target.value); setPublishError('') }} required />
               <small>Viene precargada con la fecha estimada del pedido.</small>
             </label>
             <label className={cx("quote-adjust-field")} htmlFor="quote-total-amount">
@@ -275,7 +283,10 @@ function QuoteWorkspace({ order, cotizacion, onChange, onPublished }: {
                   value={totalInput}
                   onChange={(event) => {
                     const value = event.target.value
-                    if (value === '' || Number(value) >= 0) setTotalInput(value)
+                    if (value === '' || Number(value) >= 0) {
+                      setTotalInput(value)
+                      setPublishError('')
+                    }
                   }}
                 />
               </span>

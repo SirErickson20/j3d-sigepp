@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import { FormEvent, useState } from "react"
 import { consultarPedido } from "@/app/actions/pedidos"
 import { requierePresupuesto } from "@/lib/pedidos/estados"
@@ -41,7 +40,6 @@ export function ClienteConsultaPedido() {
   }
 
   const currentIndex = result ? ORDER_STATUSES.indexOf(result.status) : -1
-  const address = [result?.address, result?.city].filter(Boolean).join(", ")
 
   return (
     <main className={cx("cliente-root", "order-page")}>
@@ -71,12 +69,12 @@ export function ClienteConsultaPedido() {
                 <span className={cx("lookup-icon")} aria-hidden="true">⌕</span>
                 <div>
                   <h2 id="lookup-title">Ingresá tu código de pedido</h2>
-                  <p>Ej: A4521</p>
+                  <p>Es el código que te mostramos al registrar el pedido (ej: K7M2Q9XA)</p>
                 </div>
               </div>
               <form className={cx("lookup-form")} onSubmit={handleSearch}>
                 <label className={cx("sr-only")} htmlFor="order-code">Código de pedido</label>
-                <input id="order-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="Ingresá tu código de pedido, ej: A4521" autoComplete="off" />
+                <input id="order-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="Código de pedido" autoComplete="off" maxLength={20} />
                 <button className={cx("primary-button")} type="submit" disabled={pending}>
                   {pending ? "Buscando..." : "Buscar"} <span aria-hidden="true">→</span>
                 </button>
@@ -104,12 +102,16 @@ export function ClienteConsultaPedido() {
                     <small>Etapa {currentIndex + 1} de {ORDER_STATUSES.length}</small>
                   </div>
                   <ol className={cx("order-progress")}>
-                    {ORDER_STATUSES.map((stage, index) => (
-                      <li key={stage} className={cx(index < currentIndex ? "completed" : index === currentIndex ? "current" : "")}>
-                        <span className={cx("stage-number")}>{index + 1}</span>
-                        <span className={cx("stage-label")}>{stage}</span>
-                      </li>
-                    ))}
+                    {ORDER_STATUSES.map((stage, index) => {
+                      // Error 11 del TP3: "En rediseño" es opcional y no se marca como cumplida si no ocurrió.
+                      const skipped = stage === "En rediseño" && index < currentIndex && !result.wentThroughRedesign
+                      return (
+                        <li key={stage} className={cx(skipped ? "skipped" : index < currentIndex ? "completed" : index === currentIndex ? "current" : "")}>
+                          <span className={cx("stage-number")}>{skipped ? "–" : index + 1}</span>
+                          <span className={cx("stage-label")}>{stage}{skipped && <small> (no fue necesaria)</small>}</span>
+                        </li>
+                      )
+                    })}
                   </ol>
                 </div>
                 <div className={cx("order-overview")}>
@@ -131,23 +133,15 @@ export function ClienteConsultaPedido() {
                       <small>Todavía estamos preparando el presupuesto de tu pedido. Consultá de nuevo más tarde con tu código.</small>
                     </div>
                   )}
-                  {result.referenceUrl && (
-                    <div className={cx("model-preview")}>
-                      <Image src={result.referenceUrl} alt="Archivo de referencia del pedido" width={150} height={105} unoptimized />
-                      <span>{result.referenceFile ?? "Referencia"}</span>
-                    </div>
-                  )}
                 </div>
+                {/* Error 2 del TP3: la consulta es pública, así que no se muestran datos personales. */}
                 <dl className={cx("result-details")}>
                   <div><dt>Tipo de producto</dt><dd>{result.product}</dd></div>
                   <div><dt>Colores</dt><dd>{result.colors.join(", ")}</dd></div>
                   <div><dt>Cantidad</dt><dd>{result.quantity} unidades</dd></div>
-                  <div><dt>Diseño requerido</dt><dd>{result.designDescription}</dd></div>
-                  <div><dt>Cliente</dt><dd>{result.customer}</dd></div>
-                  <div><dt>Email</dt><dd>{result.email}</dd></div>
-                  <div><dt>Número de teléfono</dt><dd>{result.phone}</dd></div>
                   <div><dt>Modalidad de entrega</dt><dd>{result.delivery === "Envío" ? "Envío a domicilio" : "Retiro en local"}</dd></div>
-                  {address && <div className={cx("detail-wide")}><dt>Domicilio</dt><dd>{address}</dd></div>}
+                  <div className={cx("detail-wide")}><dt>Diseño requerido</dt><dd>{result.designDescription}</dd></div>
+                  {result.referenceFile && <div className={cx("detail-wide")}><dt>Archivo de referencia</dt><dd>{result.referenceFile}</dd></div>}
                 </dl>
               </section>
             )}

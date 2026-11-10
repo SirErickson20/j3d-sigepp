@@ -208,3 +208,11 @@
 /* HU-10: el presupuesto todavía no está disponible */
 .quote-pending { max-width: 260px; border-color: var(--edge); background: var(--panel-2); }
 .quote-pending small { color: var(--subtle); font-size: 12px; line-height: 1.5; }
+
+/* Error 11 del TP3: etapa opcional que el pedido no necesitó */
+.order-progress li.skipped .stage-number { border-style: dashed; color: #4a4c52; }
+.order-progress li.skipped .stage-label small { display: block; color: #4a4c52; font-size: 11px; }
+
+/* Error 12 del TP3: en tablet (561 a 800 px) el campo del código no puede achicarse hasta desaparecer */
+.lookup-form input { min-width: 12rem; }
+@media (max-width: 800px) { .lookup-form { align-items: stretch; flex-direction: column; } .lookup-form input { min-width: 0; } .lookup-form .primary-button { width: 100%; justify-content: center; } }

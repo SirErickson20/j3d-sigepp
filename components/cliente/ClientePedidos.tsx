@@ -2,6 +2,19 @@
 
 import { FormEvent, useState } from "react"
 import { createPedido } from "@/app/actions/pedidos"
+import { PRODUCT_TYPES } from "@/lib/pedidos/types"
+import {
+  ACCEPT_ARCHIVO,
+  CANTIDAD_MAXIMA,
+  CANTIDAD_MINIMA,
+  DIGITOS_TELEFONO,
+  MAX_ARCHIVO_BYTES,
+  MAX_LARGO_DISENO,
+  MAX_LARGO_TEXTO,
+  MENSAJE_ARCHIVO_INVALIDO,
+  esEmailValido,
+  tieneExtensionPermitida,
+} from "@/lib/pedidos/validacion"
 import styles from "./cliente.module.css"
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -52,6 +65,12 @@ export function ClientePedidos() {
       return
     }
 
+    const email = String(new FormData(form).get("email") ?? "").trim()
+    if (!esEmailValido(email)) {
+      setError("Ingresá un email válido (por ejemplo, nombre@correo.com).")
+      return
+    }
+
     setPending(true)
     setError("")
     const result = await createPedido(new FormData(form))
@@ -89,6 +108,7 @@ export function ClientePedidos() {
                 <p className={cx("eyebrow")}>Pedido recibido</p>
                 <h1 id="success-title">Pedido #{orderCode} registrado</h1>
                 <p className={cx("success-copy")}>Gracias por contarnos cómo querés tu producto. Vamos a revisar los detalles y preparar tu presupuesto.</p>
+                <p className={cx("success-copy")}>Guardá el código <strong>{orderCode}</strong>: lo vas a necesitar para consultar el estado y el presupuesto de tu pedido.</p>
                 <div className={cx("status-badge")}><span /> Pendiente de presupuesto</div>
                 <button className={cx("secondary-button")} type="button" onClick={() => {
                   setSubmitted(false)
@@ -142,14 +162,7 @@ export function ClientePedidos() {
                     <span>Tipo de producto <b>*</b></span>
                     <select name="producto" required defaultValue="">
                       <option value="" disabled>Elegí una opción</option>
-                      <option>Mate</option>
-                      <option>Llavero</option>
-                      <option>Medalla</option>
-                      <option>Vaso</option>
-                      <option>Juguete</option>
-                      <option>Maceta</option>
-                      <option>Soporte</option>
-                      <option>Otros</option>
+                      {PRODUCT_TYPES.map((product) => <option key={product}>{product}</option>)}
                     </select>
                   </label>
                   <fieldset className={cx("field color-field")}>
@@ -189,9 +202,9 @@ export function ClientePedidos() {
                   <div className={cx("field")}>
                     <span id="quantity-label">Cantidad <b>*</b></span>
                     <div className={cx("stepper")} aria-labelledby="quantity-label">
-                      <button type="button" aria-label="Restar cantidad" onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
+                      <button type="button" aria-label="Restar cantidad" onClick={() => setQuantity(Math.max(CANTIDAD_MINIMA, quantity - 1))}>−</button>
                       <output>{quantity}</output>
-                      <button type="button" aria-label="Sumar cantidad" onClick={() => setQuantity(quantity + 1)}>+</button>
+                      <button type="button" aria-label="Sumar cantidad" onClick={() => setQuantity(Math.min(CANTIDAD_MAXIMA, quantity + 1))}>+</button>
                     </div>
                     <input type="hidden" name="cantidad" value={quantity} />
                   </div>
@@ -201,24 +214,29 @@ export function ClientePedidos() {
                       className={cx("file-input")}
                       type="file"
                       name="archivo"
-                      accept=".jpeg,.png,.jpg,.pdf"
+                      accept={ACCEPT_ARCHIVO}
                       onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (!file) {
-                          event.currentTarget.setCustomValidity("")
-                          return
-                        }
+                        const input = event.currentTarget
+                        const file = input.files?.[0]
+                        input.setCustomValidity("")
+                        if (!file) return
+                        // Petición de cambio 005/26: no se exige el tipo MIME (algunos celulares no lo envían).
+                        // Acá se controla la extensión y el tamaño; el servidor revisa el contenido real.
                         const allowedTypes = ["image/jpeg", "image/png", "application/pdf"]
-                        const extension = file.name.toLowerCase().split(".").pop()
-                        const isAllowed = allowedTypes.includes(file.type) && ["jpeg", "jpg", "png", "pdf"].includes(extension ?? "")
-                        event.currentTarget.setCustomValidity(isAllowed ? "" : "Solo se permiten archivos .jpeg, .png, .jpg o .pdf.")
-                        if (!isAllowed) event.currentTarget.value = ""
+                        const isAllowed = tieneExtensionPermitida(file.name) || allowedTypes.includes(file.type)
+                        const message = !isAllowed
+                          ? MENSAJE_ARCHIVO_INVALIDO
+                          : file.size > MAX_ARCHIVO_BYTES ? "El archivo de referencia no puede superar 5 MB." : ""
+                        if (message) {
+                          input.value = ""
+                          setError(message)
+                        }
                       }}
                     />
                   </label>
                   <label className={cx("field full-width")}>
                     <span>Diseño requerido <b>*</b></span>
-                    <textarea name="diseno" required rows={5} placeholder="Describí el diseño o adjuntá una referencia" />
+                    <textarea name="diseno" required rows={5} maxLength={MAX_LARGO_DISENO} placeholder="Describí el diseño o adjuntá una referencia" />
                   </label>
                 </div>
               </section>
@@ -231,9 +249,9 @@ export function ClientePedidos() {
                   </div>
                 </div>
                 <div className={cx("field-grid")}>
-                  <label className={cx("field")}><span>Nombre <b>*</b></span><input name="nombre" required type="text" placeholder="Tu nombre" /></label>
-                  <label className={cx("field")}><span>Apellido <b>*</b></span><input name="apellido" required type="text" placeholder="Tu apellido" /></label>
-                  <label className={cx("field")}><span>Email <b>*</b></span><input name="email" required type="email" placeholder="tu@email.com" /></label>
+                  <label className={cx("field")}><span>Nombre <b>*</b></span><input name="nombre" required type="text" maxLength={MAX_LARGO_TEXTO} placeholder="Tu nombre" /></label>
+                  <label className={cx("field")}><span>Apellido <b>*</b></span><input name="apellido" required type="text" maxLength={MAX_LARGO_TEXTO} placeholder="Tu apellido" /></label>
+                  <label className={cx("field")}><span>Email <b>*</b></span><input name="email" required type="email" maxLength={254} placeholder="tu@email.com" /></label>
                   <label className={cx("field")}>
                     <span>Número de teléfono <b>*</b></span>
                     <input
@@ -241,11 +259,11 @@ export function ClientePedidos() {
                       required
                       type="tel"
                       inputMode="numeric"
-                      pattern="[0-9]{10}"
-                      maxLength={10}
+                      pattern={`[0-9]{${DIGITOS_TELEFONO}}`}
+                      maxLength={DIGITOS_TELEFONO}
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 10))}
-                      title="Ingresá un número de teléfono de exactamente 10 dígitos"
+                      onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, DIGITOS_TELEFONO))}
+                      title={`Ingresá un número de teléfono de exactamente ${DIGITOS_TELEFONO} dígitos`}
                       placeholder="1123456789"
                     />
                   </label>
